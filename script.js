@@ -1,127 +1,151 @@
-let rooms = [];
-let currentRoom = null;
+// Firebase configuration
+const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_AUTH_DOMAIN",
+    databaseURL: "YOUR_DATABASE_URL",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_STORAGE_BUCKET",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
+};
 
-document.getElementById('num-players').addEventListener('input', function() {
-    const numPlayers = this.value;
-    const playerNamesDiv = document.getElementById('player-names');
-    playerNamesDiv.innerHTML = '';
-    for (let i = 0; i < numPlayers; i++) {
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.placeholder = `Player ${i + 1} Name`;
-        playerNamesDiv.appendChild(input);
-    }
+// Initialize Firebase
+firebase.initializeApp(firebaseConfig);
+const database = firebase.database();
+
+let currentRoomId = null;
+let playerId = null;
+
+// DOM Elements
+const createGameBtn = document.getElementById('createGameBtn');
+const startGameBtn = document.getElementById('startGameBtn');
+const roomList = document.getElementById('roomList');
+const gameRoom = document.getElementById('gameRoom');
+
+createGameBtn.addEventListener('click', () => {
+    document.getElementById('createGameModal').style.display = 'block';
 });
 
-document.getElementById('create-room').addEventListener('click', function() {
-    const distance = document.getElementById('distance').value;
-    const numPlayers = document.getElementById('num-players').value;
+document.querySelector('.close').addEventListener('click', () => {
+    document.getElementById('createGameModal').style.display = 'none';
+});
+
+startGameBtn.addEventListener('click', createRoom);
+
+// Firebase listeners
+database.ref('rooms').on('value', (snapshot) => {
+    roomList.innerHTML = '';
+    const rooms = snapshot.val() || {};
+    
+    Object.entries(rooms).forEach(([roomId, room]) => {
+        if (room.status === 'waiting') {
+            const li = document.createElement('li');
+            li.textContent = `Room ${roomId} (${Object.keys(room.players).length}/${room.maxPlayers})`;
+            li.addEventListener('click', () => joinRoom(roomId));
+            roomList.appendChild(li);
+        }
+    });
+});
+
+async function createRoom() {
+    const strategy = document.getElementById('strategy').value;
+    const maxPlayers = document.getElementById('maxPlayers').value;
     const factor = document.getElementById('factor').value;
-    const playerNames = Array.from(document.querySelectorAll('#player-names input')).map(input => input.value);
 
-    if (playerNames.some(name => name === '')) {
-        alert('Please fill in all player names.');
-        return;
-    }
+    const roomRef = database.ref('rooms').push();
+    currentRoomId = roomRef.key;
+    playerId = generatePlayerId();
 
-    const room = {
-        id: rooms.length + 1,
-        distance,
-        numPlayers,
-        factor,
-        players: playerNames,
+    const roomData = {
+        strategy,
+        maxPlayers: parseInt(maxPlayers),
+        factor: parseFloat(factor),
         status: 'waiting',
-        winner: null
+        players: {
+            [playerId]: {
+                name: `Player ${Math.floor(Math.random() * 1000)}`,
+                number: null,
+                status: 'active'
+            }
+        }
     };
 
-    rooms.push(room);
-    updateRoomList();
-    joinRoom(room.id);
-});
-
-function updateRoomList() {
-    const roomsList = document.getElementById('rooms');
-    roomsList.innerHTML = '';
-    rooms.forEach(room => {
-        const li = document.createElement('li');
-        li.textContent = `Room ${room.id} - ${room.players.length}/${room.numPlayers} players`;
-        li.addEventListener('click', () => joinRoom(room.id));
-        roomsList.appendChild(li);
-    });
+    await roomRef.set(roomData);
+    setupRoomListeners();
+    showGameRoom();
 }
 
-function joinRoom(roomId) {
-    const room = rooms.find(r => r.id === roomId);
-    if (room.players.length >= room.numPlayers) {
-        alert('Room is full.');
+async function joinRoom(roomId) {
+    currentRoomId = roomId;
+    playerId = generatePlayerId();
+    
+    const roomRef = database.ref(`rooms/${roomId}`);
+    const roomSnapshot = await roomRef.once('value');
+    const room = roomSnapshot.val();
+
+    if (Object.keys(room.players).length >= room.maxPlayers) {
+        alert('Room is full!');
         return;
     }
 
-    currentRoom = room;
-    document.getElementById('create-game').style.display = 'none';
-    document.getElementById('room-list').style.display = 'none';
-    document.getElementById('game-room').style.display = 'block';
-
-    updateGameInfo();
-
-    if (room.status === 'waiting') {
-        setTimeout(startGame, 90000); // 1.5 minutes
-    }
-}
-
-function updateGameInfo() {
-    const gameInfo = document.getElementById('game-info');
-    gameInfo.innerHTML = `
-        <p>Distance: ${currentRoom.distance}</p>
-        <p>Number of Players: ${currentRoom.numPlayers}</p>
-        <p>Factor: ${currentRoom.factor}</p>
-    `;
-
-    const gamePlayers = document.getElementById('game-players');
-    gamePlayers.innerHTML = '<h3>Players:</h3>';
-    currentRoom.players.forEach(player => {
-        gamePlayers.innerHTML += `<p>${player}</p>`;
+    await roomRef.child(`players/${playerId}`).set({
+        name: `Player ${Math.floor(Math.random() * 1000)}`,
+        number: null,
+        status: 'active'
     });
 
-    const gameStatus = document.getElementById('game-status');
-    gameStatus.innerHTML = `<p>Status: ${currentRoom.status}</p>`;
+    setupRoomListeners();
+    showGameRoom();
 }
 
-function startGame() {
-    currentRoom.status = 'playing';
-    updateGameInfo();
+function setupRoomListeners() {
+    const roomRef = database.ref(`rooms/${currentRoomId}`);
+    
+    roomRef.on('value', (snapshot) => {
+        const room = snapshot.val();
+        updateGameUI(room);
+        
+        if (room.status === 'playing') {
+            startGameRound(room);
+        }
+    });
+}
 
-    let players = [...currentRoom.players];
+function updateGameUI(room) {
+    document.getElementById('roomIdDisplay').textContent = currentRoomId;
+    const playersList = document.getElementById('playersList');
+    playersList.innerHTML = '';
 
-    while (players.length > 1) {
-        const average = players.length / 2;
-        const target = average * currentRoom.factor;
+    Object.entries(room.players).forEach(([id, player]) => {
+        const div = document.createElement('div');
+        div.className = 'player-card';
+        div.textContent = `${player.name}${player.status === 'eliminated' ? ' (Eliminated)' : ''}`;
+        playersList.appendChild(div);
+    });
 
-        const differences = players.map(player => ({
-            name: player,
-            difference: Math.abs(player.length - target)
-        }));
-
-        differences.sort((a, b) => currentRoom.distance === 'close' ? a.difference - b.difference : b.difference - a.difference);
-
-        const eliminated = differences[0].name;
-        players = players.filter(player => player !== eliminated);
-
-        const gameStatus = document.getElementById('game-status');
-        gameStatus.innerHTML += `<p>Eliminated: ${eliminated}</p>`;
+    if (room.status === 'playing') {
+        document.getElementById('inputSection').classList.remove('hidden');
     }
-
-    currentRoom.winner = players[0];
-    currentRoom.status = 'finished';
-    updateGameInfo();
-
-    const gameStatus = document.getElementById('game-status');
-    gameStatus.innerHTML += `<p>Winner: ${currentRoom.winner}</p>`;
 }
 
-document.getElementById('exit-room').addEventListener('click', function() {
-    currentRoom = null;
-    document.getElementById('create-game').style.display = 'block';
-    document.getElementById('room-list').style.display = 'block';
-    document.getElementById('game-room').style.display = 'none';
-});
+function startGameRound(room) {
+    if (room.currentNumber) return;
+
+    document.getElementById('submitNumber').addEventListener('click', async () => {
+        const number = parseFloat(document.getElementById('numberInput').value);
+        await database.ref(`rooms/${currentRoomId}/players/${playerId}/number`).set(number);
+    });
+}
+
+function generatePlayerId() {
+    return Math.random().toString(36).substr(2, 9);
+}
+
+function showGameRoom() {
+    document.getElementById('lobby').classList.add('hidden');
+    document.getElementById('createGameModal').style.display = 'none');
+    gameRoom.classList.remove('hidden');
+}
+
+// Add remaining game logic for elimination rounds
+// This would include calculating averages, eliminating players, and checking for winner
