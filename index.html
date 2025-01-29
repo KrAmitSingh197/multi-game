@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game Room</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="game-container">
+        <h1>Game Room</h1>
+        <div id="create-game">
+            <h2>Create Game</h2>
+            <label for="distance">Choose between close and far:</label>
+            <select id="distance">
+                <option value="close">Close</option>
+                <option value="far">Far</option>
+            </select>
+            <label for="num-players">Number of players:</label>
+            <input type="number" id="num-players" min="2" max="10">
+            <div id="player-names"></div>
+            <label for="factor">Factor by which average is multiplied:</label>
+            <input type="number" id="factor" min="1" max="10">
+            <button id="create-room">Create Room</button>
+        </div>
+        <div id="room-list">
+            <h2>Rooms</h2>
+            <ul id="rooms"></ul>
+        </div>
+        <div id="game-room" style="display: none;">
+            <h2>Game Room</h2>
+            <div id="game-info"></div>
+            <div id="game-players"></div>
+            <div id="game-status"></div>
+            <button id="exit-room">Exit Room</button>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
